@@ -36,6 +36,7 @@ public class Utils {
                         sb.append(line);
                     }
                     Message msg = new Message();
+                    msg.what = 0x0001;
                     msg.obj = sb.toString();
                     handler.sendMessage(msg);
                 } catch (IOException e) {
@@ -43,24 +44,5 @@ public class Utils {
                 }
             }
         }).start();
-    }
-
-    public static void setPicBitmap(final ImageView imageView, final String url){
-
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-                    conn.connect();
-                    InputStream is = conn.getInputStream();
-                    Bitmap bitmap = BitmapFactory.decodeStream(is);
-                    imageView.setImageBitmap(bitmap);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }).start();
-
     }
 }
