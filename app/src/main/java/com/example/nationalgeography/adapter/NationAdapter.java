@@ -8,6 +8,7 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.support.v4.util.LruCache;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,6 +37,10 @@ public class NationAdapter extends BaseAdapter{
 
     private Bitmap bitmap;
 
+    /*
+        Cache for downloaded images
+     */
+
     private LruCache<String,BitmapDrawable> memoryCache;
 
 
@@ -46,6 +51,7 @@ public class NationAdapter extends BaseAdapter{
         this.inflater = LayoutInflater.from(context);
         this.bitmap = BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image);
 
+        //Get the maximum value of usable memory
         int maxMemory = (int) Runtime.getRuntime().maxMemory();
         int cacheSize = maxMemory/6;
         memoryCache = new LruCache<String ,BitmapDrawable>(cacheSize);
@@ -86,7 +92,8 @@ public class NationAdapter extends BaseAdapter{
 
         ImageView row_image = viewCache.getImageView();
         String imageUrl = item.getImageHref();
-        if(imageUrl != null){
+        //Request image from server only when imageUrl is not null
+        if(imageUrl != "null"){
             BitmapDrawable drawable = getBitmapDrawableFromMemoryCache(imageUrl);
             if (drawable != null){
                 row_image.setImageDrawable(drawable);
@@ -97,15 +104,20 @@ public class NationAdapter extends BaseAdapter{
                 row_image.setImageDrawable(asyncDrawable);
                 task.execute(imageUrl);
             }
-        }else{
-//            viewCache.getImageView().setImageResource(R.drawable.default_image);
+        }else if(imageUrl == "null"){
+            viewCache.getImageView().setImageResource(R.drawable.default_image);
         }
 
         return view;
     }
 
+    /*
+        Cancel potential task when there is another request task for current ImageView
+        Cancel succeed return true ,or false
+     */
+
     private boolean cancelPotentialTask(String imageUrl, ImageView imageView) {
-        BitmapWorkerTask task = getDownLoadTask(imageView);
+        BitmapWorkerTask task = getBitmapWorkerTask(imageView);
         if (task != null) {
             String url = task.url;
             if (url == null || !url .equals(imageUrl)){
@@ -117,9 +129,17 @@ public class NationAdapter extends BaseAdapter{
         return true;
     }
 
+    /*
+        Get an image from LruCache
+     */
+
     private BitmapDrawable getBitmapDrawableFromMemoryCache(String imageUrl) {
         return memoryCache.get(imageUrl);
     }
+
+    /*
+        Add an image to LruCache
+     */
 
     private void addBitmapDrawableToMemoryCache(String imageUrl,BitmapDrawable drawable){
         if (getBitmapDrawableFromMemoryCache(imageUrl) == null ){
@@ -127,7 +147,11 @@ public class NationAdapter extends BaseAdapter{
         }
     }
 
-    private BitmapWorkerTask getDownLoadTask(ImageView imageView){
+    /*
+        Get BitmapWorkerTask related to specific ImageView
+     */
+
+    private BitmapWorkerTask getBitmapWorkerTask(ImageView imageView){
         if (imageView != null){
             Drawable drawable  = imageView.getDrawable();
             if (drawable instanceof AsyncDrawable ){
@@ -137,12 +161,16 @@ public class NationAdapter extends BaseAdapter{
         return null;
     }
 
+    /*
+        Customised Drawable which has the WeakReference of BitmapDrawable
+     */
+
     class AsyncDrawable extends  BitmapDrawable{
         private  WeakReference<BitmapWorkerTask> bitmapWorkerTaskWeakReference;
 
         public AsyncDrawable(Resources resources, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask){
             super(resources,bitmap);
-            bitmapWorkerTaskWeakReference = new WeakReference<BitmapWorkerTask>(bitmapWorkerTask);
+            bitmapWorkerTaskWeakReference = new WeakReference<>(bitmapWorkerTask);
         }
 
         private BitmapWorkerTask getDownLoadTaskFromAsyncDrawable(){
@@ -150,13 +178,17 @@ public class NationAdapter extends BaseAdapter{
         }
     }
 
+    /*
+        AsyncTask for downloading images
+     */
+
     class BitmapWorkerTask extends AsyncTask<String,Void,BitmapDrawable> {
 
         String url;
         private WeakReference<ImageView> imageViewWeakReference;
 
         public BitmapWorkerTask(ImageView imageView) {
-            imageViewWeakReference = new WeakReference<ImageView>(imageView);
+            imageViewWeakReference = new WeakReference<>(imageView);
         }
 
         @Override
@@ -168,10 +200,14 @@ public class NationAdapter extends BaseAdapter{
             return drawable;
         }
 
+        /*
+            Get ImageView related to current BitmapWorkerTask
+         */
+
         private ImageView getAttachedImageView() {
             ImageView imageView = imageViewWeakReference.get();
             if (imageView != null){
-                BitmapWorkerTask task = getDownLoadTask(imageView);
+                BitmapWorkerTask task = getBitmapWorkerTask(imageView);
                 if (this == task ){
                     return  imageView;
                 }

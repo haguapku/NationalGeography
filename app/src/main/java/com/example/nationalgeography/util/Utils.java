@@ -1,10 +1,7 @@
 package com.example.nationalgeography.util;
 
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Message;
-import android.widget.ImageView;
 
 import java.io.BufferedReader;
 import java.io.IOException;
