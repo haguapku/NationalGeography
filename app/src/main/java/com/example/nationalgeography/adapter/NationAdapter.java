@@ -225,13 +225,14 @@ public class NationAdapter extends BaseAdapter{
                 conn.setConnectTimeout(5*1000);
                 conn.setReadTimeout(10*1000);
                 conn.setRequestProperty("User-Agent","Mozilla/4.0(compatible;MSIE 5.0;Windows NT;DigExt)");
-
                 if (conn.getResponseCode() == 200) {
                     mBitmap = BitmapFactory.decodeStream(conn.getInputStream());
                 }else if(conn.getResponseCode() == 301){
                     String newUrl = conn.getHeaderField("Location");
                     conn = (HttpURLConnection) new URL(newUrl).openConnection();
                     mBitmap = BitmapFactory.decodeStream(conn.getInputStream());
+                }else{
+                    mBitmap = BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image);
                 }
             } catch (IOException e) {
                 e.printStackTrace();
