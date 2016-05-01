@@ -232,12 +232,11 @@ public class NationAdapter extends BaseAdapter{
                     String newUrl = conn.getHeaderField("Location");
                     conn = (HttpURLConnection) new URL(newUrl).openConnection();
                     mBitmap = BitmapFactory.decodeStream(conn.getInputStream());
-                }else if(conn.getResponseCode() == 403){
-                    mBitmap = BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image);
                 }
-
             } catch (IOException e) {
                 e.printStackTrace();
+                return BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image);
+
             }finally {
                 if(conn != null){
                     conn.disconnect();
