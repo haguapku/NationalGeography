@@ -1,12 +1,15 @@
 package com.example.nationalgeography.adapter;
 
 import android.content.Context;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
+import android.os.Environment;
 import android.support.v4.util.LruCache;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -19,11 +22,22 @@ import android.widget.TextView;
 import com.example.nationalgeography.R;
 import com.example.nationalgeography.model.Item;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
+
+import libcore.io.DiskLruCache;
 
 
 /**
@@ -32,6 +46,8 @@ import java.util.List;
 public class NationAdapter extends BaseAdapter{
 
     public final static String TAG = "=====tag=====";
+
+    static final int DISK_CACHE_DEFAULT_SIZE = 10 * 1024 * 1024;
 
     private List<Item> items;
     private Context context;
@@ -45,6 +61,8 @@ public class NationAdapter extends BaseAdapter{
 
     private LruCache<String,BitmapDrawable> memoryCache;
 
+    private DiskLruCache diskLruCache;
+
 
     public NationAdapter(Context context,List<Item> items) {
 
@@ -53,10 +71,28 @@ public class NationAdapter extends BaseAdapter{
         this.inflater = LayoutInflater.from(context);
         this.bitmap = BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image);
 
+
+        //First level cache on memory
         //Get the maximum value of usable memory
         int maxMemory = (int) Runtime.getRuntime().maxMemory();
         int cacheSize = maxMemory/6;
-        memoryCache = new LruCache<String ,BitmapDrawable>(cacheSize);
+        memoryCache = new LruCache<String ,BitmapDrawable>(cacheSize){
+            @Override
+            protected int sizeOf(String key, BitmapDrawable value) {
+                return value.getBitmap().getByteCount();
+            }
+        };
+
+        //Second level cache on disk
+        try {
+            File cacheDir = getDiskCacheDir(context, "bitmap");
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs();
+            }
+            diskLruCache = DiskLruCache.open(cacheDir, getAppVersion(context), 1, DISK_CACHE_DEFAULT_SIZE);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -94,20 +130,25 @@ public class NationAdapter extends BaseAdapter{
 
         ImageView row_image = viewCache.getImageView();
         String imageUrl = item.getImageHref();
-        //Request image from server only when imageUrl is not null
-        if(imageUrl != "null"){
-            BitmapDrawable drawable = getBitmapDrawableFromMemoryCache(imageUrl);
-            if (drawable != null){
-                row_image.setImageDrawable(drawable);
-            }else if (cancelPotentialTask(imageUrl,row_image)){
-                //Download image
-                BitmapWorkerTask task = new BitmapWorkerTask(row_image);
-                AsyncDrawable asyncDrawable = new AsyncDrawable(context.getResources(),bitmap,task);
-                row_image.setImageDrawable(asyncDrawable);
-                task.execute(imageUrl);
-            }
-        }else if(imageUrl == "null"){
-            viewCache.getImageView().setImageResource(R.drawable.default_image);
+
+        //Try to get cache from memory
+        BitmapDrawable drawable = getBitmapDrawableFromMemoryCache(imageUrl);
+        if (drawable != null) {
+            row_image.setImageDrawable(drawable);
+            return view;
+        }
+
+        //Try to get cache from disk
+        drawable = getBitmapDrawableFromDisk(imageUrl);
+        if (drawable != null) {
+            addBitmapDrawableToMemoryCache(imageUrl,drawable);
+            row_image.setImageDrawable(drawable);
+            return view;
+        }else if(cancelPotentialTask(imageUrl,row_image)) {
+            BitmapWorkerTask task = new BitmapWorkerTask(row_image);
+            AsyncDrawable asyncDrawable = new AsyncDrawable(context.getResources(),bitmap,task);
+            row_image.setImageDrawable(asyncDrawable);
+            task.execute(imageUrl);
         }
 
         return view;
@@ -115,7 +156,7 @@ public class NationAdapter extends BaseAdapter{
 
     /*
         Cancel potential task when there is another request task for current ImageView
-        Cancel succeed return true ,or false
+        Cancel succeed return true ,otherwise false
      */
 
     private boolean cancelPotentialTask(String imageUrl, ImageView imageView) {
@@ -150,6 +191,26 @@ public class NationAdapter extends BaseAdapter{
     }
 
     /*
+        Get an image from DiskLruCache
+     */
+
+    public BitmapDrawable getBitmapDrawableFromDisk(String url) {
+        try {
+            String key = hashKeyForDisk(url);
+            DiskLruCache.Snapshot snapShot = diskLruCache.get(key);
+            if (snapShot != null) {
+                InputStream is = snapShot.getInputStream(0);
+                Bitmap bitmap = BitmapFactory.decodeStream(is);
+                return new BitmapDrawable(context.getResources(),bitmap);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
+    /*
         Get BitmapWorkerTask related to specific ImageView
      */
 
@@ -164,7 +225,7 @@ public class NationAdapter extends BaseAdapter{
     }
 
     /*
-        Customised Drawable which has the WeakReference of BitmapDrawable
+        Customised Drawable which has the WeakReference of BitmapWorkerTask
      */
 
     class AsyncDrawable extends  BitmapDrawable{
@@ -195,11 +256,89 @@ public class NationAdapter extends BaseAdapter{
 
         @Override
         protected BitmapDrawable doInBackground(String... strings) {
-            url = strings[0];
-            Bitmap bitmap = downloadBitmap(url);
-            BitmapDrawable drawable = new BitmapDrawable(context.getResources(),bitmap);
-            addBitmapDrawableToMemoryCache(url,drawable);
-            return drawable;
+            try {
+                url = strings[0];
+                String key = hashKeyForDisk(url);
+                DiskLruCache.Editor editor = diskLruCache.edit(key);
+                if (editor != null) {
+                    OutputStream outputStream = editor.newOutputStream(0);
+                    if (downloadUrlToStream(url, outputStream)) {
+                        editor.commit();
+                    } else {
+                        editor.abort();
+                    }
+                }
+                diskLruCache.flush();
+                BitmapDrawable drawable = getBitmapDrawableFromDisk(url);
+                if(drawable != null){
+                    addBitmapDrawableToMemoryCache(url,drawable);
+                }
+
+                return drawable;
+            }catch(IOException e){
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+
+        private boolean downloadUrlToStream(String urlString, OutputStream outputStream) {
+            HttpURLConnection urlConnection = null;
+            BufferedOutputStream out = null;
+            BufferedInputStream in = null;
+            try {
+
+                final URL url = new URL(urlString);
+                urlConnection = (HttpURLConnection) url.openConnection();
+                urlConnection.setConnectTimeout(5*1000);
+                urlConnection.setReadTimeout(10*1000);
+                urlConnection.setRequestProperty("User-Agent","Mozilla/4.0(compatible;MSIE 5.0;Windows NT;DigExt)");
+                if (urlConnection.getResponseCode() == 200) {
+                    in = new BufferedInputStream(urlConnection.getInputStream(), 8 * 1024);
+                    out = new BufferedOutputStream(outputStream, 8 * 1024);
+                    int b;
+                    while ((b = in.read()) != -1) {
+                        out.write(b);
+                    }
+                    return true;
+                }else if(urlConnection.getResponseCode() == 301){
+                    String newUrl = urlConnection.getHeaderField("Location");
+                    urlConnection = (HttpURLConnection) new URL(newUrl).openConnection();
+                    in = new BufferedInputStream(urlConnection.getInputStream(), 8 * 1024);
+                    out = new BufferedOutputStream(outputStream, 8 * 1024);
+                    int b;
+                    while ((b = in.read()) != -1) {
+                        out.write(b);
+                    }
+                    return true;
+                }else{
+                    in = new BufferedInputStream(Bitmap2IS(BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image)),
+                            8*1024);
+                    out = new BufferedOutputStream(outputStream, 8 * 1024);
+                    int b;
+                    while ((b = in.read()) != -1) {
+                        out.write(b);
+                    }
+                    return true;
+                }
+            } catch (final IOException e) {
+                e.printStackTrace();
+                return false;
+            } finally {
+                if (urlConnection != null) {
+                    urlConnection.disconnect();
+                }
+                try {
+                    if (out != null) {
+                        out.close();
+                    }
+                    if (in != null) {
+                        in.close();
+                    }
+                } catch (final IOException e) {
+                    e.printStackTrace();
+                }
+            }
         }
 
         /*
@@ -217,35 +356,6 @@ public class NationAdapter extends BaseAdapter{
             return null;
         }
 
-        private Bitmap downloadBitmap(String imageUrl){
-            Bitmap mBitmap = null;
-            HttpURLConnection conn = null;
-            try {
-                conn = (HttpURLConnection) new URL(imageUrl).openConnection();
-                conn.setConnectTimeout(5*1000);
-                conn.setReadTimeout(10*1000);
-                conn.setRequestProperty("User-Agent","Mozilla/4.0(compatible;MSIE 5.0;Windows NT;DigExt)");
-                if (conn.getResponseCode() == 200) {
-                    mBitmap = BitmapFactory.decodeStream(conn.getInputStream());
-                }else if(conn.getResponseCode() == 301){
-                    String newUrl = conn.getHeaderField("Location");
-                    conn = (HttpURLConnection) new URL(newUrl).openConnection();
-                    mBitmap = BitmapFactory.decodeStream(conn.getInputStream());
-                }else{
-                    mBitmap = BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image);
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-                return BitmapFactory.decodeResource(context.getResources(),R.drawable.default_image);
-
-            }finally {
-                if(conn != null){
-                    conn.disconnect();
-                }
-            }
-            return mBitmap;
-        }
-
         @Override
         protected void onPostExecute(BitmapDrawable drawable) {
             super.onPostExecute(drawable);
@@ -254,5 +364,61 @@ public class NationAdapter extends BaseAdapter{
                 imageView.setImageDrawable(drawable);
             }
         }
+    }
+
+    //Get the directory for disk cache
+    private File getDiskCacheDir(Context context, String uniqueName) {
+        String cachePath;
+        if (Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState())
+                || !Environment.isExternalStorageRemovable()) {
+            cachePath = context.getExternalCacheDir().getPath();
+        } else {
+            cachePath = context.getCacheDir().getPath();
+        }
+        return new File(cachePath + File.separator + uniqueName);
+    }
+
+    //Get version of the app
+    private int getAppVersion(Context context) {
+        try {
+            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            return info.versionCode;
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
+        return 1;
+    }
+
+    //MD5
+    private String hashKeyForDisk(String key) {
+        String cacheKey;
+        try {
+            final MessageDigest mDigest = MessageDigest.getInstance("MD5");
+            mDigest.update(key.getBytes());
+            cacheKey = bytesToHexString(mDigest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            cacheKey = String.valueOf(key.hashCode());
+        }
+        return cacheKey;
+    }
+
+    private String bytesToHexString(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < bytes.length; i++) {
+            String hex = Integer.toHexString(0xFF & bytes[i]);
+            if (hex.length() == 1) {
+                sb.append('0');
+            }
+            sb.append(hex);
+        }
+        return sb.toString();
+    }
+
+    //Transfer Bitmap to InputStream
+    private InputStream Bitmap2IS(Bitmap bm){
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        bm.compress(Bitmap.CompressFormat.JPEG, 100, baos);
+        InputStream sbs = new ByteArrayInputStream(baos.toByteArray());
+        return sbs;
     }
 }
