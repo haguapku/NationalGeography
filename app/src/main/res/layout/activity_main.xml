@@ -10,6 +10,7 @@
     android:orientation="vertical"
     tools:context="com.example.nationalgeography.MainActivity">
 
+   <!--
    <Button
        android:id="@+id/update"
        android:layout_width="wrap_content"
@@ -17,6 +18,12 @@
        android:text="@string/update"/>
 
    <ListView
+       android:id="@+id/list_detail"
+       android:layout_width="match_parent"
+       android:layout_height="match_parent"/>
+       -->
+
+   <com.example.nationalgeography.widget.MyListView
        android:id="@+id/list_detail"
        android:layout_width="match_parent"
        android:layout_height="match_parent"/>

@@ -17,6 +17,7 @@ import com.example.nationalgeography.adapter.NationAdapter;
 import com.example.nationalgeography.database.MyDatabaseHelper;
 import com.example.nationalgeography.model.Item;
 import com.example.nationalgeography.util.Utils;
+import com.example.nationalgeography.widget.MyListView;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -33,7 +34,7 @@ public class MainActivity extends AppCompatActivity {
 
     private NationAdapter adapter;
 
-    private ListView listView;
+    private MyListView listView;
     private Button update;
 
     private ActionBar actionBar;
@@ -72,9 +73,13 @@ public class MainActivity extends AppCompatActivity {
                         db.insert("Nation",null,values);
                     }
                     adapter.notifyDataSetChanged();
+                    listView.onRefreshComplete();
                 } catch (JSONException e) {
                     e.printStackTrace();
                 }
+            }else if(msg.what == 0x0002){
+                listView.onRefreshComplete();
+                Toast.makeText(MainActivity.this,"No network",Toast.LENGTH_LONG).show();
             }
         }
     };
@@ -86,12 +91,13 @@ public class MainActivity extends AppCompatActivity {
 
         actionBar = getSupportActionBar();
 
-        listView = (ListView) findViewById(R.id.list_detail);
-        update = (Button) findViewById(R.id.update);
+        listView = (MyListView) findViewById(R.id.list_detail);
+//        update = (Button) findViewById(R.id.update);
 
         //Initialize database
         dbHelper = new MyDatabaseHelper(this, "NationGeography.db", null, 1);
 
+        /*
         //Click to refresh data
         update.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -108,6 +114,34 @@ public class MainActivity extends AppCompatActivity {
                 }else{
                     Toast.makeText(MainActivity.this,"No network",Toast.LENGTH_LONG).show();
                 }
+            }
+        });*/
+
+        listView.setOnRefreshListener(new MyListView.OnRefreshListener() {
+
+            @Override
+            public void onRefresh() {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            if(Utils.isNetworkAvailable(MainActivity.this)){
+                                SQLiteDatabase db = dbHelper.getWritableDatabase();
+                                db.delete("Nation",null,null);
+                                Utils.getNationJSON(GET_NATION_JSON,handler);
+                                Message msg = new Message();
+                                msg.what = 0x0000;
+                                handler.sendMessage(msg);
+                            }else {
+                                Message msg = new Message();
+                                msg.what = 0x0002;
+                                handler.sendMessage(msg);
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }).start();
             }
         });
 
