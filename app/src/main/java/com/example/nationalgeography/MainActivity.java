@@ -50,10 +50,13 @@ public class MainActivity extends AppCompatActivity {
                 String jsonData = (String) msg.obj;
                 try {
                     JSONObject jsonObject = new JSONObject(jsonData);
+                    SQLiteDatabase db = dbHelper.getWritableDatabase();
                     String actionBarTitle = jsonObject.getString("title");
+                    ContentValues values_title = new ContentValues();
+                    values_title.put("title",actionBarTitle);
+                    db.insert("ActionBar",null,values_title);
                     actionBar.setTitle(actionBarTitle);
                     JSONArray jsonArray = jsonObject.getJSONArray("rows");
-                    SQLiteDatabase db = dbHelper.getWritableDatabase();
                     ContentValues values = new ContentValues();
                     for(int i=0; i<jsonArray.length(); i++){
                         JSONObject object = jsonArray.getJSONObject(i);
@@ -96,6 +99,7 @@ public class MainActivity extends AppCompatActivity {
                 if(Utils.isNetworkAvailable(MainActivity.this)){
                     SQLiteDatabase db = dbHelper.getWritableDatabase();
                     db.delete("Nation",null,null);
+                    db.delete("ActionBar",null,null);
                     items.clear();
                     Message msg = new Message();
                     msg.what = 0x0000;
@@ -115,15 +119,21 @@ public class MainActivity extends AppCompatActivity {
 
         //Check data first, if not null, get data from database other than server
         SQLiteDatabase db = dbHelper.getWritableDatabase();
-        Cursor cursor = db.query("Nation",null,null,null,null,null,null);
+        Cursor cursor1 = db.query("ActionBar",null,null,null,null,null,null);
+        Cursor cursor2 = db.query("Nation",null,null,null,null,null,null);
 
-        if(cursor.moveToNext()){
+        if(cursor1.moveToNext()){
+            String actionBarTitle = cursor1.getString(cursor1.getColumnIndex("title"));
+            actionBar.setTitle(actionBarTitle);
+        }
+
+        if(cursor2.moveToNext()){
             do{
-                String title = cursor.getString(cursor.getColumnIndex("title"));
-                String description = cursor.getString(cursor.getColumnIndex("description"));
-                String imageHref = cursor.getString(cursor.getColumnIndex("imageHref"));
+                String title = cursor2.getString(cursor2.getColumnIndex("title"));
+                String description = cursor2.getString(cursor2.getColumnIndex("description"));
+                String imageHref = cursor2.getString(cursor2.getColumnIndex("imageHref"));
                 items.add(new Item(title,description,imageHref));
-            }while (cursor.moveToNext());
+            }while (cursor2.moveToNext());
             adapter.notifyDataSetChanged();
         }else{
             Utils.getNationJSON(GET_NATION_JSON,handler);

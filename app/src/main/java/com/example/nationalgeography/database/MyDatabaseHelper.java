@@ -9,6 +9,10 @@ import android.database.sqlite.SQLiteOpenHelper;
  */
 public class MyDatabaseHelper extends SQLiteOpenHelper {
 
+    public static final String CREATE_NATION_TITLE = "create table ActionBar ("
+            + "id integer primary key autoincrement, "
+            + "title text)";
+
     public static final String CREATE_NATION = "create table Nation ("
             + "id integer primary key autoincrement, "
             + "title text, "
@@ -21,6 +25,7 @@ public class MyDatabaseHelper extends SQLiteOpenHelper {
 
     @Override
     public void onCreate(SQLiteDatabase sqLiteDatabase) {
+        sqLiteDatabase.execSQL(CREATE_NATION_TITLE);
         sqLiteDatabase.execSQL(CREATE_NATION);
     }
 
