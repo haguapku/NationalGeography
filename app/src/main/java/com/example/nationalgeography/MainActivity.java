@@ -59,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
                     actionBar.setTitle(actionBarTitle);
                     JSONArray jsonArray = jsonObject.getJSONArray("rows");
                     ContentValues values = new ContentValues();
+                    items.clear();
                     for(int i=0; i<jsonArray.length(); i++){
                         JSONObject object = jsonArray.getJSONObject(i);
                         String title = object.getString("title");
